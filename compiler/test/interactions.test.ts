@@ -88,3 +88,82 @@ describe("captureInteractions hover capture (occlusion-immune)", () => {
     assert.equal(resting, "rgb(0, 0, 0)", "the page is left in its resting (non-hover) state");
   });
 });
+
+// Issue #65 — only ONE FAQ row was recognized as an accordion, so the other closed panels kept their
+// full open height in the clone. A recognized row must generalize to its same-structure siblings,
+// and the driver must still reject a look-alike row that doesn't actually toggle.
+describe("captureInteractions accordion sibling generalization (issue #65)", () => {
+  let browser: Browser;
+  let page: Page;
+  before(async () => {
+    browser = await chromium.launch();
+    page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  });
+  after(async () => {
+    await browser.close();
+  });
+
+  const faq = (rows: number, opts: { decoy?: boolean } = {}) => `
+    <style>
+      .faq-item { border-bottom: 1px solid #ddd; }
+      .faq-q { display: block; width: 100%; text-align: left; padding: 16px; cursor: pointer; background: none; border: 0; font: 16px/24px sans-serif; }
+      .faq-a { height: 0; overflow: hidden; visibility: hidden; }
+      .faq-item.open .faq-a { height: auto; visibility: visible; }
+      .faq-a p { margin: 0; padding: 0 16px 16px; font: 15px/22px sans-serif; }
+    </style>
+    <section class="faq">
+      ${Array.from({ length: rows }, (_, i) => `
+        <div class="faq-item">
+          <button class="faq-q" aria-expanded="false"${i === 0 ? ' aria-controls="a0"' : ""}>Question ${i + 1}?</button>
+          <div class="faq-a"${i === 0 ? ' id="a0"' : ""}><p>Answer ${i + 1}, long enough to occupy real height when the row is open.</p></div>
+        </div>`).join("")}
+      ${opts.decoy ? `
+        <div class="faq-item decoy">
+          <button class="faq-q" aria-expanded="false">Not a real question</button>
+          <div class="faq-a"><p>This panel never opens.</p></div>
+        </div>` : ""}
+    </section>
+    <script>
+      for (const item of document.querySelectorAll(".faq-item:not(.decoy)")) {
+        const btn = item.querySelector(".faq-q");
+        btn.addEventListener("click", () => {
+          const open = item.classList.toggle("open");
+          btn.setAttribute("aria-expanded", String(open));
+        });
+      }
+    </script>`;
+
+  const setup = async (html: string) => {
+    await page.setContent(html);
+    await page.evaluate("globalThis.__name = globalThis.__name || ((fn) => fn);");
+    await tagElements(page);
+  };
+
+  const accordionItems = async () => {
+    const cap = await captureInteractions(page, { maxCandidates: 50 });
+    return cap.patterns.filter((p) => p.kind === "accordion").flatMap((p) => (p.kind === "accordion" ? p.items : []));
+  };
+
+  it("drives every same-structure FAQ row, not just the one with aria-controls", async () => {
+    await setup(faq(6));
+    const items = await accordionItems();
+    assert.equal(items.length, 6, `all six rows should be accordion items, got ${items.length}`);
+    for (const it of items) {
+      assert.equal(it.expandedAtBase, false);
+      assert.ok(/^0(px)?$/.test(String(it.regionHidden.height)), `closed panel keeps its collapsed height, got ${it.regionHidden.height}`);
+      assert.match(String(it.regionHidden.overflow), /hidden|clip/);
+    }
+  });
+
+  it("rejects a look-alike row whose panel never toggles", async () => {
+    await setup(faq(4, { decoy: true }));
+    const items = await accordionItems();
+    assert.equal(items.length, 4, `the decoy row must be dropped by the driver, got ${items.length}`);
+  });
+
+  it("leaves a lone row alone when it has no look-alike siblings", async () => {
+    await setup(faq(1));
+    const items = await accordionItems();
+    assert.equal(items.length, 1);
+  });
+});

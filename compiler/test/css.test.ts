@@ -1517,3 +1517,52 @@ describe("generateCss sticky full-width wrapper is viewport-tracking (no px free
     assert.ok(/width:280px/.test(allRulesX(css, "n1")), `a fixed-width sticky rail keeps its px, got: ${allRulesX(css, "n1")}`);
   });
 });
+
+// Issue #30 — an absolutely positioned, shrink-to-fit single-line badge ("Most popular", 12px/700,
+// captured at max-content width 75.328125px). The baked width quantizes to 75.3px — fractionally
+// narrower than the text — so "popular" wrapped to a second line and painted outside the badge. The
+// in-flow nowrap detector can't see it (no sizing probe on out-of-flow boxes), so the out-of-flow
+// branch must give it `white-space:nowrap`.
+describe("generateCss out-of-flow single-line text (issue #30)", () => {
+  const badgeCs = (over: StyleMap = {}): StyleMap => ({
+    display: "block", position: "absolute", top: "-10px", left: "24px",
+    fontSize: "12px", fontWeight: "700", lineHeight: "normal",
+    paddingTop: "4px", paddingBottom: "4px", paddingLeft: "10px", paddingRight: "10px",
+    width: "75.328125px", height: "22px", ...over,
+  });
+  function badge(text: string, over: StyleMap = {}, height = 22) {
+    const b = xNode("n1", "span", Object.fromEntries(XVPS.map((vp) => [vp, {
+      cs: badgeCs(over), bbox: { x: 24, y: -10, width: 75.328125, height },
+    }])), [{ text }]);
+    const card = xNode("n0", "div", Object.fromEntries(XVPS.map((vp) => [vp, {
+      cs: { display: "block", position: "relative" }, bbox: { x: 0, y: 0, width: 300, height: 400 },
+    }])), [b]);
+    return card;
+  }
+
+  it("emits white-space:nowrap on an absolute single-line badge with a baked width", () => {
+    const css = generateCss(xIr(badge("Most popular")), new Map());
+    assert.ok(allRulesX(css, "n1").includes("white-space:nowrap"), `badge should get nowrap, got: ${allRulesX(css, "n1")}`);
+  });
+
+  it("does NOT force nowrap on a genuinely two-line absolute label", () => {
+    // 12px text, normal line-height, 8px vertical padding: two lines ≈ 2×14.4 + 8 ≈ 37px.
+    const css = generateCss(xIr(badge("Most popular plan this year", {}, 37)), new Map());
+    assert.ok(!allRulesX(css, "n1").includes("white-space:nowrap"), `two-line label must stay wrappable, got: ${allRulesX(css, "n1")}`);
+  });
+
+  it("does NOT emit nowrap for a single unbreakable token (it can't wrap)", () => {
+    const css = generateCss(xIr(badge("Popular")), new Map());
+    assert.ok(!allRulesX(css, "n1").includes("white-space:nowrap"), `unbreakable token needs no nowrap, got: ${allRulesX(css, "n1")}`);
+  });
+
+  it("does NOT touch in-flow text through this branch", () => {
+    const css = generateCss(xIr(badge("Most popular", { position: "static", top: "auto", left: "auto" })), new Map());
+    assert.ok(!allRulesX(css, "n1").includes("white-space:nowrap"), `in-flow text is handled by the probe-based detector, got: ${allRulesX(css, "n1")}`);
+  });
+
+  it("leaves authored pre-wrap whitespace alone", () => {
+    const css = generateCss(xIr(badge("Most popular", { whiteSpace: "pre-wrap" })), new Map());
+    assert.ok(!allRulesX(css, "n1").includes("white-space:nowrap"), `pre-wrap must be preserved, got: ${allRulesX(css, "n1")}`);
+  });
+});
