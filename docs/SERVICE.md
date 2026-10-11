@@ -130,6 +130,12 @@ keys exist. Use `Authorization: Bearer <key>` or `x-api-key: <key>`.
 > one-time email link, and `POST /v1/signup/verify` consumes the token, stores
 > only the API key's SHA-256 hash in Postgres, stores the verified email in the
 > key label for attribution, and returns the raw key once.
+>
+> The link may be verified again for `SIGNUP_TOKEN_REUSE_GRACE_MINUTES` (default
+> 15) after its first use, so a page reload or an email security scanner that
+> opened the link first doesn't lock the user out. Each repeat verify mints a
+> fresh key and revokes the one minted before it, so only one key per link is
+> ever live. Set it to `0` for strictly single-use links.
 
 Normal product `options` are `{ mode?: "single" | "multi", styling?: "tailwind" | "css", framework?: "next" | "vite", preview?: boolean }`.
 `mode` defaults to `"single"`, `styling` defaults to `"tailwind"`, and `framework` defaults to `"next"`. `preview`
@@ -244,6 +250,7 @@ List-then-read so a clone never floods the agent's context:
 | `SIGNUP_FROM_EMAIL`                                                                                                               | api         | —                                           | verified sender, e.g. `Ditto <hello@ditto.site>`                                             |
 | `SIGNUP_VERIFY_URL`                                                                                                               | api         | —                                           | landing-page URL that receives `?token=...`, e.g. `https://www.ditto.site/api-key`           |
 | `SIGNUP_TOKEN_TTL_MINUTES`                                                                                                        | api         | `30`                                        | one-time email verification token lifetime                                                   |
+| `SIGNUP_TOKEN_REUSE_GRACE_MINUTES`                                                                                                | api         | `15`                                        | re-verify window after first use (0 = single-use)                                                 |
 | `SIGNUP_CORS_ORIGINS`                                                                                                             | api         | `https://ditto.site,https://www.ditto.site` | comma-separated browser origins allowed to call public signup routes                         |
 | `SSRF_DISABLE`                                                                                                                    | api         | `false`                                     | turn off the SSRF guard (not recommended)                                                    |
 | `SSRF_ALLOW_LOOPBACK`                                                                                                             | api         | `false`                                     | allow cloning localhost (local dev)                                                          |
