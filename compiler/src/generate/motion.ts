@@ -62,10 +62,31 @@ function hasElementChild(n: IRNode | undefined): boolean {
 /** Resolve cap-keyed motion specs to cids that survived into this IR (optionally
  *  scoped by an include filter, for multi-route body/chrome splitting). Specs whose
  *  element was pruned are dropped (left static). */
-export function buildMotionSpec(ir: IR, motion: MotionCapture | undefined, include?: (cid: string) => boolean): MotionSpec {
+export function buildMotionSpec(
+  ir: IR,
+  motion: MotionCapture | undefined,
+  include?: (cid: string) => boolean,
+  /** cids of accordion regions. Their open/closed state belongs to the accordion runtime (issue #65). */
+  accordionRegions?: Iterable<string>,
+): MotionSpec {
   if (!motion) return { waapi: [], rotators: [], reveals: [], marquees: [] };
   const map = capToCid(ir);
   const nodeByCid = cidToNode(ir);
+  // Issue #65: a closed accordion panel can also be captured as a `visibility:hidden` scroll reveal
+  // (it is hidden at load, and the interaction pass leaves it visible). Replaying that reveal hides the
+  // panel with visibility only, keeping its full OPEN height, and fights the accordion's own
+  // closed/open styles. The accordion runtime owns everything inside its regions, so drop reveals
+  // on a region or any of its descendants.
+  const accordionOwned = new Set<string>();
+  for (const cid of accordionRegions ?? []) {
+    const stack = [nodeByCid.get(cid)];
+    while (stack.length) {
+      const n = stack.pop();
+      if (!n || accordionOwned.has(n.id)) continue;
+      accordionOwned.add(n.id);
+      for (const c of n.children) if (!isTextChild(c)) stack.push(c);
+    }
+  }
   const ok = (cid: string | undefined): cid is string => !!cid && (!include || include(cid));
   const waapi: RTWaapi[] = [];
   for (const w of motion.waapi as WaapiAnim[]) {
@@ -88,6 +109,7 @@ export function buildMotionSpec(ir: IR, motion: MotionCapture | undefined, inclu
   for (const rv of (motion.reveals ?? []) as RevealSpec[]) {
     const cid = map.get(rv.cap);
     if (!ok(cid)) continue;
+    if (accordionOwned.has(cid)) continue;
     reveals.push({
       cid, opacity: rv.opacity, transform: rv.transform, transition: rv.transition,
       ...(rv.visibility === "hidden" ? { visibility: rv.visibility } : {}),

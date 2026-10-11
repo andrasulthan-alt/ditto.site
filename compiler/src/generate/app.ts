@@ -2716,7 +2716,7 @@ export function generateApp(input: GenerateInput, tokensCss: string): { pageTsx:
   const runtimeSpecs = buildRuntimeSpecs(ir, input.interaction, undefined, input.rejectedSpecs);
   const accordions = runtimeSpecs.filter((s): s is AccordionRuntimeSpec => s.kind === "accordion");
   const wires = runtimeSpecs.filter((s) => s.kind !== "accordion");
-  const motionSpec = buildMotionSpec(ir, input.motion);
+  const motionSpec = buildMotionSpec(ir, input.motion, undefined, accordions.flatMap((a) => a.items.map((i) => i.region)));
   const lottieSpec = buildLottieSpec(ir, input.motion, assetGraph);
   const components = input.components ? buildComponentRegistry(ir, input.primitives, input.recipeReport) : undefined;
   const linkRewrite = sameOriginRelativeLinkRewrite(sourceUrl);

@@ -3172,6 +3172,54 @@ function nowrapWrapVulnerable(node: IRNode, parentNode: IRNode | undefined, view
   return painted >= 1;
 }
 
+/** Issue #30 — an OUT-OF-FLOW (absolute/fixed) single-line text leaf whose width is materialized as a
+ *  fixed px. Such a box is typically shrink-to-fit (a badge, tooltip, or label), captured at its exact
+ *  max-content width, so it has zero slack: the emitter's sub-pixel quantization (`snapLen` rounds to
+ *  0.1px, `snapBase` snaps near scale steps) can land it fractionally NARROWER than the text, which then
+ *  wraps onto a second line. With the height also fixed and no clip, that second line paints outside the
+ *  box and a word appears to vanish. `nowrapWrapVulnerable` can't see these boxes: it relies on the
+ *  sizing probe, which only runs for in-flow leaves.
+ *
+ *  `white-space:nowrap` is a no-op wherever the text already fits (it was one line in the capture), and
+ *  where quantization shaved the width it turns a wrap into an invisible sub-pixel overflow. Guards, at
+ *  every painted viewport:
+ *   • absolute/fixed position (out of flow — it cannot shove siblings when it overflows by a hair);
+ *   • text leaf (direct text; element children only if REPLACED, e.g. an icon), not `pre*` whitespace;
+ *   • single line: content height fits one line box (line-height, or ~1.2×font-size for `normal`),
+ *     so a genuinely wrapping multi-line label is never forced onto one line;
+ *   • the text has a break opportunity (a single token can't wrap, so nowrap would be noise).
+ *  Only applied when the width plan is a baked `fixed` px — a fluid/percentage width may legitimately
+ *  narrow between captured viewports, where the source would wrap. */
+function nowrapOutOfFlowTextLeaf(node: IRNode, viewports: number[]): boolean {
+  if (REPLACED.has(node.tag) || node.tag === "canvas" || node.tag.includes("-")) return false;
+  if (node.children.some((c) => !isTextChild(c) && !REPLACED.has(c.tag))) return false;
+  const text = node.children.filter(isTextChild).map((c) => c.text).join("").trim();
+  if (!text || !/[\s\-‐-—\/]/.test(text)) return false;
+  let painted = 0;
+  for (const vp of viewports) {
+    const cs = node.computedByVp[vp]; const nb = node.bboxByVp[vp];
+    if (!cs || !nb || !node.visibleByVp[vp] || (cs.display || "") === "none") continue;
+    if (!(nb.width > 0) || !(nb.height > 0)) continue;
+    const pos = cs.position || "static";
+    if (pos !== "absolute" && pos !== "fixed") return false;
+    const ws = cs.whiteSpace || "normal";
+    if (ws !== "normal") return false; // already nowrap (nothing to add) or pre* (authored whitespace)
+    const vChrome = pf(cs.paddingTop) + pf(cs.paddingBottom) + pf(cs.borderTopWidth) + pf(cs.borderBottomWidth);
+    const contentH = nb.height - (Number.isFinite(vChrome) ? vChrome : 0);
+    const lh = pf(cs.lineHeight);
+    const fs = pf(cs.fontSize);
+    if (Number.isFinite(lh) && lh > 0) {
+      if (contentH > lh * 1.5) return false; // two or more line boxes — genuinely wrapping
+    } else if (Number.isFinite(fs) && fs > 0) {
+      if (contentH > fs * 1.7) return false; // `line-height:normal` ≈ 1.1–1.3×; two lines ≥ ~2.2×
+    } else {
+      return false;
+    }
+    painted++;
+  }
+  return painted >= 1;
+}
+
 function hasPxMaxWidthCap(node: IRNode, viewports: number[]): boolean {
   const caps: number[] = [];
   for (const vp of viewports) {
@@ -3687,7 +3735,10 @@ export function collectNodeRules(ir: IR, assetMap: Map<string, string>, includeN
     // A single-line text leaf sitting flush against its container's available width at every painted
     // width → `white-space:nowrap` so a sub-pixel column shortfall in the clone can't wrap it. Decided
     // once per node (uniform across bands); measured against layoutParent to see through contents wrappers.
-    const nowrapText = !isContents && nowrapWrapVulnerable(node, layoutParent, sampleVps);
+    const nowrapText = !isContents && (
+      nowrapWrapVulnerable(node, layoutParent, sampleVps) ||
+      (widthPlan.kind === "fixed" && nowrapOutOfFlowTextLeaf(node, sampleVps))
+    );
     // If this node has a NON-identity transform at any painted band, the identity `none` must be
     // emitted at the bands that have it so the transform can't cascade across bands (freezing a
     // width the source left untransformed). Identity matrices are canonicalized to "none" upstream.
