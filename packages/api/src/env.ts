@@ -34,6 +34,8 @@ export type ApiEnv = {
   signupVerifyUrl?: string;
   /** verification token lifetime in minutes. */
   signupTokenTtlMinutes: number;
+  /** minutes after first use a signup token may be verified again, replacing the earlier key (0 = strictly single-use). */
+  signupTokenReuseGraceMinutes: number;
   /** browser origins allowed to call public signup routes. */
   signupCorsOrigins: string[];
   /** SSRF guard (default on). */
@@ -60,6 +62,7 @@ export function loadEnv(): ApiEnv {
     signupFromEmail: process.env.SIGNUP_FROM_EMAIL,
     signupVerifyUrl: process.env.SIGNUP_VERIFY_URL,
     signupTokenTtlMinutes: parseInt(process.env.SIGNUP_TOKEN_TTL_MINUTES ?? "30", 10),
+    signupTokenReuseGraceMinutes: parseInt(process.env.SIGNUP_TOKEN_REUSE_GRACE_MINUTES ?? "15", 10) || 0,
     signupCorsOrigins: (process.env.SIGNUP_CORS_ORIGINS ?? "https://ditto.site,https://www.ditto.site").split(",").map((s) => s.trim()).filter(Boolean),
     ssrfEnabled: process.env.SSRF_DISABLE !== "true",
     ssrfAllowLoopback: process.env.SSRF_ALLOW_LOOPBACK === "true",

@@ -135,11 +135,13 @@ const SignupVerifyRequest = z
   .strict();
 
 export type SignupDeps = {
+  /** Persist a minted key. Returning its id lets the email flow link the key to its token, so a
+   *  repeat verify inside the reuse grace window can revoke it (issue #37). */
   createApiKey: (input: {
     keyHash: string;
     label: string;
     rateLimit?: number;
-  }) => Promise<void>;
+  }) => Promise<void | { id: string }>;
   defaultRateLimit?: number;
   rateLimitPerHour?: number;
   directEnabled?: boolean;
@@ -149,7 +151,20 @@ export type SignupDeps = {
       tokenHash: string;
       expiresAt: Date;
     }) => Promise<void>;
-    consumeToken: (tokenHash: string) => Promise<{ email: string } | undefined>;
+    consumeToken: (tokenHash: string) => Promise<{ email: string; id?: string } | undefined>;
+    /** Issue #37 — re-open a token already consumed at or after `consumedAfter` (and not yet
+     *  expired). Optional: without it (or with `reuseGraceMs: 0`) a token is strictly single-use. */
+    reclaimToken?: (
+      tokenHash: string,
+      consumedAfter: Date,
+    ) => Promise<{ email: string; id: string; apiKeyId?: string | null } | undefined>;
+    /** Remember which key a token minted. */
+    linkTokenKey?: (tokenId: string, apiKeyId: string) => Promise<void>;
+    /** Revoke a key by id. */
+    revokeApiKey?: (apiKeyId: string) => Promise<void>;
+    /** How long after first use a token may be verified again, each time replacing the previous
+     *  key. Default 15 minutes; 0 disables reuse. */
+    reuseGraceMs?: number;
     sendVerificationEmail: (input: {
       email: string;
       verifyUrl: string;
@@ -209,16 +224,18 @@ export function createApp(deps: AppDeps): Hono {
       perMinute: signupRateLimit,
       windowMs: 60 * 60 * 1000,
     });
-    const mintKey = async (email: string, label?: string) => {
+    const mintKeyWithId = async (email: string, label?: string) => {
       const apiKey = `dtto_live_${randomBytes(32).toString("base64url")}`;
       const storedLabel = label ? `${email} (${label})` : email;
-      await signup.createApiKey({
+      const created = await signup.createApiKey({
         keyHash: hashApiKey(apiKey),
         label: storedLabel,
         rateLimit: signup.defaultRateLimit,
       });
-      return apiKey;
+      return { apiKey, id: created ? created.id : undefined };
     };
+    const mintKey = async (email: string, label?: string) =>
+      (await mintKeyWithId(email, label)).apiKey;
 
     const directSignupHandler = async (c: Context) => {
       const body = await c.req.json().catch(() => null);
@@ -285,13 +302,43 @@ export function createApp(deps: AppDeps): Hono {
             400,
           );
         }
-        const token = await emailSignup.consumeToken(
-          hashApiKey(parsed.data.token),
-        );
-        if (!token) {
-          return c.json({ error: "invalid or expired signup token" }, 400);
+        const tokenHash = hashApiKey(parsed.data.token);
+        let token: { email: string; id?: string } | undefined =
+          await emailSignup.consumeToken(tokenHash);
+        // Issue #37: the verification link can legitimately be verified twice — a page reload, a
+        // double-mounted effect, or an email security scanner that opened the link before the user
+        // did. Strict single use left the user with "invalid or expired" and a key they never saw.
+        // Within a short grace window after first use, mint a replacement and revoke the earlier
+        // key, so whoever verifies last holds the only live key from this token.
+        let replacedKeyId: string | null | undefined;
+        const graceMs = emailSignup.reuseGraceMs ?? 15 * 60 * 1000;
+        if (!token && graceMs > 0 && emailSignup.reclaimToken) {
+          const reclaimed = await emailSignup.reclaimToken(
+            tokenHash,
+            new Date(Date.now() - graceMs),
+          );
+          if (reclaimed) {
+            token = reclaimed;
+            replacedKeyId = reclaimed.apiKeyId;
+          }
         }
-        const apiKey = await mintKey(token.email);
+        if (!token) {
+          return c.json(
+            {
+              error: "invalid or expired signup token",
+              message:
+                "This verification link has expired or was already used. Request a new link to get an API key.",
+            },
+            400,
+          );
+        }
+        if (replacedKeyId && emailSignup.revokeApiKey) {
+          await emailSignup.revokeApiKey(replacedKeyId);
+        }
+        const { apiKey, id: apiKeyId } = await mintKeyWithId(token.email);
+        if (token.id && apiKeyId && emailSignup.linkTokenKey) {
+          await emailSignup.linkTokenKey(token.id, apiKeyId);
+        }
         return c.json(
           {
             apiKey,

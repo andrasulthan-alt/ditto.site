@@ -52,6 +52,10 @@ async function main(): Promise<void> {
             await repo.createSignupToken(db!, input);
           },
           consumeToken: async (tokenHash: string) => repo.consumeSignupToken(db!, tokenHash),
+          reclaimToken: async (tokenHash: string, consumedAfter: Date) => repo.reclaimSignupToken(db!, tokenHash, consumedAfter),
+          linkTokenKey: async (tokenId: string, apiKeyId: string) => repo.linkSignupTokenKey(db!, tokenId, apiKeyId),
+          revokeApiKey: async (apiKeyId: string) => repo.revokeApiKey(db!, apiKeyId),
+          reuseGraceMs: Math.max(0, env.signupTokenReuseGraceMinutes) * 60 * 1000,
           sendVerificationEmail: async (input: { email: string; verifyUrl: string; expiresAt: Date }) => {
             await sendSignupEmail({
               apiKey: env.resendApiKey!,
@@ -75,7 +79,8 @@ async function main(): Promise<void> {
       env.signupEnabled && db
         ? {
             createApiKey: async (input) => {
-              await repo.createApiKey(db!, input);
+              const row = await repo.createApiKey(db!, input);
+              return { id: row.id };
             },
             defaultRateLimit: env.defaultSignupKeyRateLimit,
             rateLimitPerHour: env.signupRateLimitPerHour,
