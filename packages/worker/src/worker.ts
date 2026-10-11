@@ -5,6 +5,7 @@ import { artifactStoreFromEnv } from "@cloner/storage";
 import { processCloneJob } from "./processJob.js";
 import { makeHarnessProvider } from "./harness.js";
 import { loadWorkerEnv } from "./env.js";
+import { terminalReason } from "./retryPolicy.js";
 
 async function main(): Promise<void> {
   const env = loadWorkerEnv();
@@ -75,6 +76,16 @@ async function main(): Promise<void> {
           }
         } else {
           launchFailures = 0;
+        }
+        // A deterministic capture failure (collectPage timeout, bot/auth wall, robots opt-out)
+        // would fail identically on retry while holding this slot for the full timeout again.
+        // processCloneJob has already marked the job failed with its reason, so swallow the error:
+        // pg-boss completes the attempt instead of retrying it (issue #22). Transient failures
+        // still rethrow and keep pg-boss's retry behaviour.
+        const reason = terminalReason(e);
+        if (reason) {
+          console.error(JSON.stringify({ event: "clone_failed_terminal", jobId, reason, error: String(e).slice(0, 300) }));
+          return;
         }
         throw e;
       } finally {
