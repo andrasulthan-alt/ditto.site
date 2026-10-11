@@ -580,6 +580,69 @@ async function recognizePatterns(page: Page): Promise<{ tabs: TabsStruct[]; acco
     }
     if (collapsedItems.length) accordions.push({ rootCap: collapsedItems[0]!.triggerCap, items: collapsedItems });
 
+    // Issue #65 — sibling-row generalization. Builders (Wix and others) often expose only ONE FAQ row
+    // to the detectors above (e.g. aria-controls set on the open/first row only, or a panel that is a
+    // SIBLING of its button rather than inside a cursor:pointer row), so the other rows were left
+    // static and their closed panels kept their full open height (~69% taller page). Once a row is
+    // recognized, look for sibling rows with the same structure and resolve their trigger/region by
+    // the SAME relative DOM path. These are only candidates: the driver below still clicks each one
+    // and keeps it only if its region actually toggles, so a look-alike row that isn't an accordion is
+    // dropped exactly like any other non-toggling candidate.
+    const STATE_CLASS = /^(is-|has-)?(open|opened|active|expanded|show|shown|selected|current|collapsed|closed)$/i;
+    const sig = (el: Element): string =>
+      el.tagName + "|" + Array.from(el.classList).filter((c) => !STATE_CLASS.test(c)).sort().join(".");
+    const sameSigSiblings = (el: Element): Element[] => {
+      const p = el.parentElement;
+      if (!p) return [];
+      const s = sig(el);
+      return Array.from(p.children).filter((c) => c !== el && sig(c) === s);
+    };
+    const pathFrom = (root: Element, el: Element): number[] | null => {
+      const path: number[] = [];
+      for (let cur: Element | null = el; cur && cur !== root; cur = cur.parentElement) {
+        const p: Element | null = cur.parentElement;
+        if (!p) return null;
+        path.unshift(Array.prototype.indexOf.call(p.children, cur));
+      }
+      return path;
+    };
+    const follow = (root: Element, path: number[]): Element | null => {
+      let cur: Element | null = root;
+      for (const i of path) cur = cur?.children[i] ?? null;
+      return cur;
+    };
+    const elOf = (cap: string): Element | null => document.querySelector(`[data-cid-cap="${cap}"]`);
+    // Every recognized item seeds (the ARIA group collects all aria-expanded controls on the page, so
+    // its first item may be an unrelated toggle); a row already generalized is skipped via `claimed`.
+    const seenRows = new Set<Element>();
+    for (const group of accordions) for (const seed of [...group.items]) {
+      if (group.items.length >= 40) break;
+      const trigEl = elOf(seed.triggerCap), regEl = elOf(seed.regionCap);
+      if (!trigEl || !regEl) continue;
+      // Row = the closest common ancestor of trigger + region, lifted (≤3 hops) to the level that has
+      // look-alike siblings.
+      let row: Element | null = trigEl.contains(regEl) ? trigEl : regEl.contains(trigEl) ? regEl : trigEl.parentElement;
+      while (row && !row.contains(regEl)) row = row.parentElement;
+      for (let hops = 0; row && hops < 3 && sameSigSiblings(row).length === 0; hops++) row = row.parentElement;
+      if (!row || row === document.body || sameSigSiblings(row).length === 0 || seenRows.has(row)) continue;
+      seenRows.add(row);
+      for (const s of sameSigSiblings(row)) seenRows.add(s);
+      const tPath = pathFrom(row, trigEl), rPath = pathFrom(row, regEl);
+      if (!tPath || !rPath) continue;
+      for (const sib of sameSigSiblings(row)) {
+        if (group.items.length >= 40) break;
+        const t = tPath.length ? follow(sib, tPath) : sib;
+        const r = rPath.length ? follow(sib, rPath) : sib;
+        if (!t || !r || t === r || !visible(t)) continue;
+        if (sig(t) !== sig(trigEl) || r.tagName !== regEl.tagName) continue; // structure must really match
+        if (!(r.textContent || "").trim()) continue;                         // must hold real content
+        const tc = capOf(t), rc = capOf(r);
+        if (!tc || !rc || claimed.has(tc) || claimed.has(rc)) continue;
+        claimed.add(tc); claimed.add(rc);
+        group.items.push({ triggerCap: tc, regionCap: rc, expandedAtBase: t.getAttribute("aria-expanded") === "true" });
+      }
+    }
+
     // Carousels: Swiper / Slick / ARIA-carousel and class-based variants. Slide-driven
     // — collect slide elements and group by their parent (the track / transform
     // carrier); the root is the nearest carousel-ish ancestor. More robust than a
