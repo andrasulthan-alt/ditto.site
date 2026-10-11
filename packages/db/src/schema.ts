@@ -64,6 +64,9 @@ export const signupTokens = pgTable("signup_tokens", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  /** The key most recently minted from this token. A repeat verify inside the reuse grace window
+   *  (issue #37) revokes this key before minting its replacement, so no unseen key stays live. */
+  apiKeyId: uuid("api_key_id").references(() => apiKeys.id, { onDelete: "set null" }),
 });
 
 /** Structured clone progress events (mirrors in-memory backend event stream). */

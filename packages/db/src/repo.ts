@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { jobs, clones, cache, apiKeys, signupTokens, jobEvents, type Job, type NewJob, type Clone, type NewClone, type CacheRow, type ApiKey, type SignupToken } from "./schema.js";
 
@@ -123,6 +123,35 @@ export async function consumeSignupToken(db: Db, tokenHash: string): Promise<Sig
     .where(and(eq(signupTokens.tokenHash, tokenHash), gt(signupTokens.expiresAt, new Date()), isNull(signupTokens.consumedAt)))
     .returning();
   return row;
+}
+
+/** Issue #37 — re-open a signup token that was ALREADY consumed, but only within a short grace
+ *  window after its first use (`consumedAt >= consumedAfter`) and never past its TTL. This lets a
+ *  verify that ran twice (a page reload, a double-mounted effect, or an email link scanner that
+ *  opened the link first) still hand the user a key. It does not move `consumedAt`, so repeat calls
+ *  can't stretch the window. Returns undefined for missing, unused, stale, or expired tokens. */
+export async function reclaimSignupToken(db: Db, tokenHash: string, consumedAfter: Date): Promise<SignupToken | undefined> {
+  const [row] = await db
+    .select()
+    .from(signupTokens)
+    .where(and(
+      eq(signupTokens.tokenHash, tokenHash),
+      isNotNull(signupTokens.consumedAt),
+      gte(signupTokens.consumedAt, consumedAfter),
+      gt(signupTokens.expiresAt, new Date()),
+    ))
+    .limit(1);
+  return row;
+}
+
+/** Record which API key a signup token most recently minted. */
+export async function linkSignupTokenKey(db: Db, tokenId: string, apiKeyId: string): Promise<void> {
+  await db.update(signupTokens).set({ apiKeyId }).where(eq(signupTokens.id, tokenId));
+}
+
+/** Revoke an API key by id (idempotent: an already-revoked key keeps its original timestamp). */
+export async function revokeApiKey(db: Db, id: string): Promise<void> {
+  await db.update(apiKeys).set({ revokedAt: new Date() }).where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt)));
 }
 
 // ---- job events ----
