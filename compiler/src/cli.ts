@@ -9,6 +9,7 @@ import { writeJSON, writeText, ensureDir, readJSON, fileExists } from "./util/fs
 import { doneSummary, serveApp } from "./cliSummary.js";
 import type { AppFramework } from "./generate/app.js";
 import { assertEntryAllowedByRobots } from "./crawl/robotsGuard.js";
+import { parseMhtml, archiveKey, type WebArchive } from "./capture/mhtml.js";
 
 export type CloneOptions = {
   url: string;
@@ -29,6 +30,9 @@ export type CloneOptions = {
   screenshots?: boolean; // capture per-viewport screenshots (default on); --no-screenshots skips them for a
                          // faster production clone (validation-only artifact — generation ignores pixels).
   respectRobots?: boolean; // default true
+  /** Issue #49: capture from a saved web archive (.mhtml) instead of the live site. The page is
+   *  replayed offline from the archive, so no request reaches the origin. */
+  archive?: WebArchive;
   log?: (event: Record<string, unknown>) => void;
 };
 
@@ -440,7 +444,10 @@ export async function runClone(opts: CloneOptions): Promise<CloneResult> {
   writeJSON(join(runDir, "input.json"), { url: opts.url, siteId, viewports, sampleViewports: captureViewports, startedAt: new Date().toISOString() });
 
   // 1. Capture (or reuse)
-  if (opts.respectRobots ?? true) await assertEntryAllowedByRobots(opts.url);
+  // robots.txt governs crawling a live site; an archive the user saved is replayed offline, so
+  // nothing is crawled and the origin is never contacted.
+  if (opts.archive) logBoth({ event: "archive_input", url: opts.url, resources: opts.archive.resources.size, frames: opts.archive.frameCount });
+  else if (opts.respectRobots ?? true) await assertEntryAllowedByRobots(opts.url);
   let capture: CaptureResult;
   if (opts.reuseSource && fileExists(join(opts.reuseSource, "capture", "capture-result.json"))) {
     logBoth({ event: "capture_reuse", from: opts.reuseSource });
@@ -449,7 +456,7 @@ export async function runClone(opts: CloneOptions): Promise<CloneResult> {
     // For simplicity the IR is built from reuseSource and other artifacts written into runDir.
     copySourceRef(opts.reuseSource, sourceDir);
   } else {
-    capture = await captureSite({ url: opts.url, outDir: sourceDir, viewports: captureViewports, interactions: opts.interactions, motion: opts.motion, screenshots: opts.screenshots, log: logBoth });
+    capture = await captureSite({ url: opts.url, outDir: sourceDir, viewports: captureViewports, interactions: opts.interactions, motion: opts.motion, screenshots: opts.screenshots, archive: opts.archive, log: logBoth });
   }
 
   // Stage 4.5: persist the component-extraction choice in the source dir so every
@@ -579,12 +586,19 @@ function parseExperimentalContentHandoff(args: string[]): "ion-cms-v1" | undefin
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const url = args.find((a) => !a.startsWith("--"));
+  // --mhtml=<file>: clone a page saved from the browser (e.g. one behind a login) — issue #49.
+  const mhtmlPath = args.find((a) => a.startsWith("--mhtml="))?.slice("--mhtml=".length);
+  const archive = mhtmlPath ? parseMhtml(readFileSync(resolve(mhtmlPath))) : undefined;
+  const url = args.find((a) => !a.startsWith("--")) ?? archive?.url;
   if (!url) {
-    console.error("usage: clone-static <url> [--mode=single|multi] [--styling=tailwind|css] [--framework=next|vite] [--out=<dir>] [--serve] [--open]");
+    console.error("usage: clone-static <url> [--mode=single|multi] [--styling=tailwind|css] [--framework=next|vite] [--out=<dir>] [--serve] [--open]\n       clone-static --mhtml=<saved-page.mhtml> [--out=<dir>] …");
     process.exit(1);
   }
+  if (archive && archiveKey(url) !== archiveKey(archive.url)) {
+    throw new Error(`--mhtml page is ${archive.url}, but the URL argument is ${url}; omit the URL or pass the archived one`);
+  }
   const mode = parseProductMode(args);
+  if (archive && mode === "multi") throw new Error("--mhtml clones the single saved page; it can't be combined with --mode=multi");
   const styling = parseProductStyling(args);
   const framework = parseProductFramework(args);
   const experimentalContentHandoff = parseExperimentalContentHandoff(args);
@@ -679,6 +693,7 @@ async function main(): Promise<void> {
     reflow,
     screenshots,
     respectRobots,
+    archive,
     humanizeMode: styling,
     framework,
     outDir,
