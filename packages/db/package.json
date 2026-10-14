@@ -22,6 +22,7 @@
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
     "test": "node --import tsx --test test/*.test.ts",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=79 --test-coverage-branches=92 --test-coverage-functions=40 test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
