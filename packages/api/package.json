@@ -22,6 +22,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "test": "node --import tsx --test test/*.test.ts",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=88 --test-coverage-branches=73 --test-coverage-functions=78 test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
