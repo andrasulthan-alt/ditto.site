@@ -17,6 +17,24 @@ import { sha1_12, round } from "../util/canonical.js";
 import { isZipArchive, extractDotLottieJson } from "./dotlottie.js";
 import { buildDeterministicEnvShim, captureEpochMs, DEFAULT_PRNG_SEED } from "../util/envShim.js";
 import { isBotWall, classifyNavFailure } from "../util/captureFailure.js";
+import { archiveResponse, type WebArchive } from "./mhtml.js";
+
+/** Issue #49: answer every request in this context from the saved archive; block everything else.
+ *  `data:`/`blob:` URLs never reach a route handler, so inline resources keep working. */
+async function routeFromArchive(ctx: BrowserContext, archive: WebArchive, log: (e: Record<string, unknown>) => void): Promise<void> {
+  let blocked = 0;
+  await ctx.route("**/*", async (route) => {
+    const url = route.request().url();
+    const hit = archiveResponse(archive, url);
+    if (hit) {
+      await route.fulfill({ status: hit.status, contentType: hit.contentType, body: hit.body }).catch(() => {});
+      return;
+    }
+    blocked++;
+    if (blocked <= 20) log({ event: "archive_request_blocked", url: url.slice(0, 200) });
+    await route.abort("blockedbyclient").catch(() => {});
+  });
+}
 
 export const REQUIRED_VIEWPORTS = [375, 768, 1280, 1920] as const;
 // The dense width set captured for SIZE INFERENCE: a node sampled at 9 widths reveals its sizing
@@ -1131,6 +1149,8 @@ export async function captureSite(opts: {
                          // dominant capture cost — so a production clone that won't be perceptually graded
                          // can skip them. The cheap poster-less-video element stills are always kept
                          // (generation needs a first frame), this only gates the per-viewport page shots.
+  archive?: WebArchive; // issue #49: replay a saved .mhtml OFFLINE — every request is answered from the
+                        // archive and anything else is blocked, so the origin is never contacted.
   log?: (event: Record<string, unknown>) => void;
 }): Promise<CaptureResult> {
   const viewports = opts.viewports ?? [...REQUIRED_VIEWPORTS];
@@ -1362,6 +1382,7 @@ export async function captureSite(opts: {
         userAgent: DESKTOP_UA,
         javaScriptEnabled: true,
       });
+      if (opts.archive) await routeFromArchive(ctx, opts.archive, log);
       const pg = await ctx.newPage();
       attachResponseListener(pg);
       // tsx/esbuild wraps functions with a __name() helper for stack traces; that
@@ -1922,6 +1943,21 @@ export async function captureSite(opts: {
       if (a.storedAs) continue;
       if (a.url.startsWith("data:")) continue;
       if (!["image", "svg", "video", "font", "lottie", "css", "manifest"].includes(a.type)) continue;
+      if (opts.archive) {
+        // Archive mode never touches the network: take the bytes from the archive or leave it missing.
+        const hit = archiveResponse(opts.archive, a.url);
+        if (hit) {
+          a.status = hit.status;
+          a.contentType = a.contentType ?? hit.contentType;
+          storeBytes(a.url, a.type, hit.body);
+          if (a.type === "css") parseCssForFonts(hit.body.toString("utf8"), a.url, fontFaceMap, (u) => {
+            const t = classifyAsset(u, null) ?? "other";
+            recordAsset(u, t, null, null, "css-text");
+          });
+          if (a.type === "manifest") parseManifestForAssets(hit.body.toString("utf8"), a.url);
+        }
+        continue;
+      }
       // One bounded retry for transiently-failed VISUAL assets (network error / 5xx / 429):
       // a single flaky fetch otherwise degrades an image to the transparent-GIF placeholder.
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -1972,6 +2008,7 @@ export async function captureSite(opts: {
     const fetchSeoResource = async (url: string, kind: SeoResource["kind"]): Promise<void> => {
       if (fetchedSeo.has(url)) return;
       fetchedSeo.add(url);
+      if (opts.archive) return; // offline: robots/sitemap/llms aren't part of a saved page
       try {
         const resp = await fallbackCtx.request.get(url, { timeout: 15000 });
         const contentType = resp.headers()["content-type"] || null;
