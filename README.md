@@ -324,6 +324,46 @@ minting is intentional.
 | `docs/` | methodology, service, deployment, release, and responsible-use docs |
 | `examples/` | benchmark results and visual evidence |
 
+## FAQ
+
+### How is this different from asking an AI to copy a site?
+
+An LLM asked to "rebuild this page" writes new code from its impression of the page.
+The output changes from run to run, and nothing measures how close it is.
+ditto.site doesn't generate code with an LLM:
+
+- **It records what the browser rendered.** That includes the DOM, computed styles,
+  layout boxes at several widths, assets, fonts and observable interactions.
+- **It emits code deterministically.** The same frozen capture produces a byte-identical
+  app every time, so changes to the compiler show up as reviewable diffs.
+- **It measures the result.** Validation gates compare the clone's layout, styles and
+  screenshots against the capture (see [docs/METHODOLOGY.md](docs/METHODOLOGY.md)).
+- **It hands off editable code.** The output is a normal Next.js or Vite app with
+  extracted components, and its `AGENTS.md` and `content.ts` mark what's safe to edit.
+
+That makes it suited to migrations, redesign baselines, regression fixtures and
+preserving pages you own. An LLM is still the better tool when you want loose
+inspiration rather than fidelity.
+
+### Doesn't this make phishing easier?
+
+Any tool that reproduces a page's look can be misused, and this one is no exception.
+The project limits that in several ways:
+
+- **Robots opt-outs are respected.** A page disallowed by `robots.txt` is refused.
+- **Blocked access is never forced.** HTTP 403 or 429 responses and bot or auth
+  walls end the capture instead of being worked around.
+- **App logic isn't replayed.** Login, payment and personalization logic, and
+  arbitrary third-party JavaScript, are left out of the output.
+- **The hosted service is restricted.** It requires API keys and has SSRF protection
+  that blocks private, loopback and cloud-metadata addresses.
+- **The use policy is explicit.** [Responsible Use](docs/RESPONSIBLE_USE.md) prohibits
+  phishing, impersonation and credential capture, and `CONTRIBUTING.md` rejects
+  changes that make them easier.
+
+If you find a way the tool meaningfully lowers the bar for abuse, report it through
+[SECURITY.md](SECURITY.md).
+
 ## Responsible Use
 
 Use ditto.site only where you have the right to inspect, copy, transform, and
