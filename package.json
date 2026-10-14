@@ -37,6 +37,7 @@
     "bench": "npm run bench --workspace clone-static --",
     "bench-site": "npm run bench-site --workspace clone-static --",
     "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:api": "npm run dev --workspace @cloner/api",
     "dev:worker": "npm run dev --workspace @cloner/worker",

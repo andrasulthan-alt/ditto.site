@@ -6,6 +6,37 @@ so minor/patch semantics are not yet guaranteed.
 
 ## [Unreleased]
 
+### Added — Clone from a saved web archive (`--mhtml`, #49)
+
+- `npm run clone -- --mhtml=<file>` clones a page saved from the browser as
+  `.mhtml` (e.g. a page behind a login). The archive is parsed in
+  `compiler/src/capture/mhtml.ts` and replayed offline: every request is
+  fulfilled from the archive, anything else is blocked, the asset fallback
+  reads from the archive, and robots/sitemap/llms fetches are skipped. Archived
+  `<script>` elements are not re-run. Single-page only; `cid:` iframes are
+  counted but not replayed yet.
+
+### Fixed
+
+- **Accordions (#65):** a recognized FAQ row now generalizes to its
+  same-structure sibling rows (each still verified by actually toggling), and
+  scroll reveals inside accordion regions are dropped, so closed panels no longer
+  keep their open height.
+- **Wrapped badges (#30):** out-of-flow single-line text with a baked width gets
+  `white-space: nowrap`, so sub-pixel width quantization can't wrap it.
+- **Worker retries (#22):** deterministic capture failures (collectPage timeout,
+  bot/auth wall, robots opt-out, missing reused capture) are no longer retried
+  by pg-boss.
+- **Signup link (#37):** a verification link can be verified again within
+  `SIGNUP_TOKEN_REUSE_GRACE_MINUTES` (default 15) of first use; each repeat
+  mints a fresh key and revokes the previous one. Requires migration 0003.
+
+### Changed — Test coverage gate (#42)
+
+- `npm run test:coverage` runs every workspace's tests with Node's built-in
+  coverage and fails below the per-workspace line/branch/function floors; CI
+  runs it instead of `npm test`.
+
 ### Changed — Local CLI success output and orientation
 
 - The `clone-static` CLI now prints a copy-paste-safe success summary to stderr: a

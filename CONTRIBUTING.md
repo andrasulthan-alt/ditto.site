@@ -18,6 +18,12 @@ npx playwright install chromium  # for capture / browser-gated tests
   - `npm test` — runs every workspace's tests (node:test). Tests gate themselves:
     browser tests skip without Chromium; Postgres tests use `TEST_DATABASE_URL` or a
     throwaway local Postgres (root only).
+  - `npm run test:coverage` — the same suites with Node's built-in coverage (needs
+    Node ≥ 22.8). Each workspace fails if its line / branch / function coverage of
+    its own sources drops below the floor set in its `package.json`
+    (`--test-coverage-lines|branches|functions`). CI runs this gate with Postgres
+    and Chromium available. Run it locally with `TEST_DATABASE_URL` set, because
+    skipped DB tests lower the numbers.
   - Start locally: `docker compose up -d` then `npm run dev:api` / `npm run dev:worker`
     (see [`docs/SERVICE.md`](docs/SERVICE.md)).
 - **Compiler** lives in `compiler/`. See the root [`README.md`](README.md) for the
@@ -30,7 +36,10 @@ npx playwright install chromium  # for capture / browser-gated tests
 - **Don't change the compiler's clone semantics** from the service layer. The
   service is a wrapper; clone output must stay byte-deterministic (rubric Gate 6).
   Golden-file tests rely on this.
-- Every change should keep `npm run typecheck` and `npm test` green.
+- Every change should keep `npm run typecheck` and `npm run test:coverage` green.
+  New code comes with tests. When your tests raise a workspace's coverage, raise
+  its floor to a few points below the new figure so the gain is locked in. Never
+  lower a floor to get a change through.
 - Keep runtime dependencies clean with `npm audit --omit=dev --audit-level=moderate`.
 - Database schema changes: edit `packages/db/src/schema.ts`, then
   `npm run db:generate` to produce a migration, and commit it.
@@ -49,7 +58,7 @@ npm run db:migrate    # applies to $DATABASE_URL
 ## Pull requests
 
 1. Fork / branch off `main`.
-2. Make your change with tests; keep `npm run typecheck` and `npm test` green.
+2. Make your change with tests; keep `npm run typecheck` and `npm run test:coverage` green.
 3. Open a PR and fill in the [PR template](.github/pull_request_template.md). CI
    (typecheck + the full suite, with Postgres + Chromium) must pass.
 4. If your change touches the deterministic compiler's clone output, say so and

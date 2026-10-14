@@ -214,6 +214,22 @@ npm run clone -- https://example.com/ --framework=vite
 npm run validate-site -- runs/site-example.com/<timestamp>
 ```
 
+To clone a page that isn't publicly reachable, such as one behind a login, save
+it from your browser as a single-file web archive (Chrome/Edge: **Save page as →
+Webpage, Single File**) and pass the `.mhtml`:
+
+```bash
+npm run clone -- --mhtml=./saved-page.mhtml --out=./output
+```
+
+The page is replayed **offline** from the archive. Every request is answered from
+the saved file and anything else is blocked, so the site is never contacted and
+robots.txt isn't consulted. Scripts in the saved page are not re-run, because
+the archive already holds their rendered result. Interactive widgets that need
+those scripts are therefore captured in their saved state. Saved iframes and
+`--mode=multi` aren't supported yet. A saved logged-in page usually contains your
+own account data, so see [Responsible Use](docs/RESPONSIBLE_USE.md#saved-pages---mhtml).
+
 Without `--out`, runs land under `runs/<site>/<timestamp>/` and a stable
 `runs/<site>/latest` symlink always points at the newest clone, so scripts and
 `cd` targets don't depend on the timestamp.
