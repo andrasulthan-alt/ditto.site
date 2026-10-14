@@ -25,6 +25,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"bin/**\" --test-coverage-lines=87 --test-coverage-branches=42 --test-coverage-functions=83 test/*.test.mjs"
   }
 }
