@@ -19,6 +19,21 @@ operate on the target content.
 - Remove private data, credentials, customer information, and internal URLs from
   captures, artifacts, logs, and issues before sharing them.
 
+## Saved pages (`--mhtml`)
+
+`--mhtml=<file>` clones a page you saved from your own browser, which is how a
+page behind a login can be cloned. It does not get past any login: the archive
+holds only what your own session already showed you, and the capture replays it
+offline without contacting the site.
+
+- Use it only for pages you are entitled to copy, such as an app you build or
+  maintain, or an internal tool you have permission to migrate.
+- A saved logged-in page usually contains **your personal or account data**.
+  Treat the archive and every generated artifact (`.clone/`, logs, the app) as
+  sensitive, and scrub that data before sharing or deploying anything.
+- Never use it to reproduce another organization's signed-in experience for
+  impersonation or credential capture.
+
 ## Prohibited Use
 
 - Do not use ditto.site for phishing, impersonation, credential capture, fraud,
