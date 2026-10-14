@@ -39,4 +39,5 @@ jobs:
       - name: Install Chromium (for capture/browser-gated tests)
         run: npx playwright install --with-deps chromium
       - run: npm run typecheck
-      - run: npm test
+      # Full suite + per-workspace coverage floors (see CONTRIBUTING.md#develop).
+      - run: npm run test:coverage
