@@ -21,18 +21,13 @@ operate on the target content.
 
 ## Saved pages (`--mhtml`)
 
-`--mhtml=<file>` clones a page you saved from your own browser, which is how a
-page behind a login can be cloned. It does not get past any login: the archive
-holds only what your own session already showed you, and the capture replays it
-offline without contacting the site.
+`--mhtml` clones a page saved from your own browser. It doesn't bypass any login: the
+archive only contains what your session already displayed.
 
-- Use it only for pages you are entitled to copy, such as an app you build or
-  maintain, or an internal tool you have permission to migrate.
-- A saved logged-in page usually contains **your personal or account data**.
-  Treat the archive and every generated artifact (`.clone/`, logs, the app) as
-  sensitive, and scrub that data before sharing or deploying anything.
-- Never use it to reproduce another organization's signed-in experience for
-  impersonation or credential capture.
+- Only use it for pages you're allowed to copy, such as your own app.
+- A saved logged-in page usually contains personal or account data. Treat the archive
+  and all generated output as sensitive and remove that data before sharing.
+- Don't use it to reproduce another organization's signed-in pages.
 
 ## Prohibited Use
 
