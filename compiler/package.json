@@ -33,6 +33,7 @@
     "audit": "tsx src/runner/codeAudit.ts",
     "regen": "tsx src/runner/regen.ts",
     "test": "node --import tsx --test test/*.test.ts",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=70 --test-coverage-branches=69 --test-coverage-functions=58 test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
